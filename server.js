@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
+const iconv = require('iconv-lite');
 
 const app = express();
 app.use(cors());
@@ -54,13 +55,9 @@ app.get('/api/itens-pedido', async (req, res) => {
       WHERE IP.NUNOTA = ${nunota}
     `;
 
-
     const consulta = {
       serviceName: "DbExplorerSP.executeQuery",
-      requestBody: {
-        sql,
-        outputType: "json"
-      }
+      requestBody: { sql, outputType: "json" }
     };
 
     const response = await axios.post(
@@ -70,22 +67,23 @@ app.get('/api/itens-pedido', async (req, res) => {
         headers: {
           'Content-Type': 'application/json',
           'Cookie': sessionId
-        }
+        },
+        responseType: 'arraybuffer' // <- necessário
       }
     );
 
-    const linhas = response.data.responseBody?.rows || [];
+    const decoded = iconv.decode(Buffer.from(response.data), 'latin1');
+    const dataUtf8 = JSON.parse(decoded);
+    const linhas = dataUtf8.responseBody?.rows || [];
 
     const itens = linhas.map(row => ({
-      nomeProduto: String(row[1]).normalize('NFC'),
+      nomeProduto: row[1],
       qtd: row[2],
       vlrUnit: row[3],
       codProparc: row[4]
     }));
 
     res.json({ itens });
-    console.log("Linhas recebidas:", response.data.responseBody?.rows);
-
   } catch (err) {
     console.error("Erro ao consultar itens com DbExplorer:", err.message);
     res.status(500).json({ erro: "Falha ao buscar itens com SQL direto", detalhes: err.message });
@@ -122,10 +120,7 @@ app.get('/api/cabecalho-pedido', async (req, res) => {
 
     const consulta = {
       serviceName: "DbExplorerSP.executeQuery",
-      requestBody: {
-        sql,
-        outputType: "json"
-      }
+      requestBody: { sql, outputType: "json" }
     };
 
     const response = await axios.post(
@@ -135,14 +130,16 @@ app.get('/api/cabecalho-pedido', async (req, res) => {
         headers: {
           'Content-Type': 'application/json',
           'Cookie': sessionId
-        }
+        },
+        responseType: 'arraybuffer' // <- necessário
       }
     );
 
-    const row = response.data.responseBody?.rows?.[0];
-    if (!row) {
-      return res.status(404).json({ erro: "Cabeçalho não encontrado." });
-    }
+    const decoded = iconv.decode(Buffer.from(response.data), 'latin1');
+    const dataUtf8 = JSON.parse(decoded);
+
+    const row = dataUtf8.responseBody?.rows?.[0];
+    if (!row) return res.status(404).json({ erro: "Cabeçalho não encontrado." });
 
     const cabecalho = {
       parceiro: row[0],
