@@ -7,7 +7,7 @@ app.use(cors());
 app.use(express.json());
 
 // CONFIGURAÇÕES
-const SANKHYA_URL = 'http://192.168.0.239:8180';
+const SANKHYA_URL = 'http://sankhya2.nxboats.com.br:8180';
 const USUARIO = 'SUP';
 const SENHA = 'Sup#ti@88#3448';
 
@@ -162,6 +162,79 @@ app.get('/api/cabecalho-pedido', async (req, res) => {
     res.status(500).json({ erro: "Erro ao buscar cabeçalho", detalhes: err.message });
   }
 });
+
+// ROTA PARA CONSULTAR CABEÇALHO DO PEDIDO
+app.get('/api/chassi', async (req, res) => {
+  try {
+    const sessionId = await loginSankhya();
+
+    const sql = `
+      SELECT 
+        PRJ.IDENTIFICACAO AS CHASSI,
+        PAR.NOMEPARC AS CLIENTE,
+        F_DESCROPC('TGFCAB', 'STATUSNOTA', CAB.STATUSNOTA) AS STATUS,
+        TO_CHAR(CAB.DTNEG,'YYYY') AS ANO,
+        TO_CHAR(CAB.DTNEG,'MON') AS MES,
+        PAI.IDENTIFICACAO AS GRUPO
+      FROM TGFCAB CAB 
+      JOIN TCSPRJ PRJ ON PRJ.CODPROJ = CAB.CODPROJ
+      JOIN TCSPRJ PAI ON PAI.CODPROJ = PRJ.CODPROJPAI
+      JOIN TGFPAR PAR ON PAR.CODPARC = CAB.CODPARC 
+      WHERE CAB.TIPMOV = 'P'
+        AND TO_CHAR(CAB.DTNEG,'MM/YYYY') in ('06/2025' ,'05/2025') 
+        AND CAB.CODPROJ > 0 
+    `;
+
+    const consulta = {
+      serviceName: "DbExplorerSP.executeQuery",
+      requestBody: {
+        sql,
+        outputType: "json"
+      }
+    };
+
+    const response = await axios.post(
+      `${SANKHYA_URL}/mge/service.sbr?serviceName=DbExplorerSP.executeQuery&outputType=json`,
+      consulta,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Cookie': sessionId
+        }
+      }
+    );
+
+    const rows = response.data.responseBody?.rows || [];
+
+    const mesesMapeados = {
+      'JAN': 'Janeiro', 'FEB': 'Fevereiro', 'MAR': 'Março', 'APR': 'Abril',
+      'MAY': 'Maio', 'JUN': 'Junho', 'JUL': 'Julho', 'AUG': 'Agosto',
+      'SEP': 'Setembro', 'OCT': 'Outubro', 'NOV': 'Novembro', 'DEC': 'Dezembro'
+    };
+
+    const dadosPorMes = {};
+
+    for (const row of rows) {
+      const [chassi, cliente, status, ano, mesAbrev, grupo] = row;
+      const mesCompleto = `${mesesMapeados[mesAbrev.trim()] ?? mesAbrev} ${ano}`;
+
+      if (!dadosPorMes[mesCompleto]) dadosPorMes[mesCompleto] = {};
+      if (!dadosPorMes[mesCompleto][grupo]) dadosPorMes[mesCompleto][grupo] = [];
+
+      dadosPorMes[mesCompleto][grupo].push({
+        chassi,
+        cliente,
+        status
+      });
+    }
+
+    res.json({ dadosPorMes });
+  } catch (err) {
+    console.error("Erro ao buscar chassi:", err.message);
+    res.status(500).json({ erro: "Erro ao buscar dados", detalhes: err.message });
+  }
+});
+
 
 app.listen(3000, () => {
   console.log("Servidor rodando em http://localhost:3000");
